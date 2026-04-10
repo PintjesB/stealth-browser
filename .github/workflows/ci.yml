@@ -100,10 +100,9 @@ jobs:
       - name: Smoke test runtime
         shell: bash
         run: |
-          mkdir -p "${RUNNER_TEMP}/stealth-contexts"
           cid="$(docker run -d -p 17332:7332 \
             --tmpfs /tmp:size=256m,mode=1777 \
-            -v "${RUNNER_TEMP}/stealth-contexts:/contexts" \
+            --tmpfs /contexts:size=256m,mode=1777 \
             -e HOME=/tmp \
             -e XDG_CONFIG_HOME=/tmp/.config \
             -e XDG_CACHE_HOME=/tmp/.cache \
