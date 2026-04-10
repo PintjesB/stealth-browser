@@ -4,3 +4,4 @@ node_modules/
 .DS_Store
 contexts/
 tmp/
+__pycache__/
