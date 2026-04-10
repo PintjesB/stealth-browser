@@ -69,6 +69,7 @@ COPY --from=builder /usr/share/fontconfig /usr/share/fontconfig
 COPY --from=builder /etc/fonts /etc/fonts
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /opt/google/chrome /opt/google/chrome
 COPY --from=builder --chown=65532:65532 /ms-playwright /ms-playwright
 COPY --from=builder --chown=65532:65532 /app/node_modules /app/node_modules
 COPY --from=builder --chown=65532:65532 /app/package.json /app/package.json
