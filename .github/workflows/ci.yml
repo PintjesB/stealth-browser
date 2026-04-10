@@ -1,0 +1,182 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+
+concurrency:
+  group: stealth-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check server syntax
+        run: node --check stealth-server.js
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Scan tracked files and reachable history for secrets
+        run: python3 scripts/scan_secrets.py --tree --history
+
+  build-validate:
+    runs-on: ubuntu-latest
+    needs:
+      - verify
+      - secret-scan
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Build image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          load: true
+          tags: stealth-browser:ci
+          provenance: false
+          sbom: false
+
+      - name: Scan built image
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          image-ref: stealth-browser:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Smoke test runtime
+        shell: bash
+        run: |
+          cid="$(docker run -d -p 17332:7332 -e BROWSER_WARMUP_ON_START=1 stealth-browser:ci)"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          for _ in {1..30}; do
+            if curl -fsS http://127.0.0.1:17332/health > /tmp/health.json; then
+              cat /tmp/health.json
+              grep -q '"warmup_succeeded":true' /tmp/health.json
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$cid"
+          exit 1
+
+  publish:
+    if: >
+      github.event_name == 'push' &&
+      github.repository == 'PintjesB/stealth-browser' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    needs:
+      - verify
+      - secret-scan
+      - build-validate
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        shell: bash
+        run: |
+          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/${owner}/stealth-browser"
+          created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          sha_tag="sha-${GITHUB_SHA::12}"
+          {
+            echo "image=${image}"
+            echo "labels<<EOF"
+            echo "org.opencontainers.image.title=stealth-browser"
+            echo "org.opencontainers.image.description=Reusable Patchright stealth browser runtime image"
+            echo "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+            echo "org.opencontainers.image.revision=${GITHUB_SHA}"
+            echo "org.opencontainers.image.created=${created}"
+            echo "EOF"
+            echo "tags<<EOF"
+            echo "${image}:${sha_tag}"
+            if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+              echo "${image}:main"
+              echo "${image}:latest"
+            fi
+            if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+              version="${GITHUB_REF_NAME}"
+              echo "${image}:${version}"
+              if [[ "${version}" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+                echo "${image}:v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+              fi
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build and publish image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9
+
+      - name: Sign published image digest
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign "${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}"

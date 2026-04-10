@@ -1,0 +1,17 @@
+{
+  "name": "stealth-browser",
+  "version": "1.0.0",
+  "description": "Reusable Patchright-based stealth browser HTTP service",
+  "private": true,
+  "main": "stealth-server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node stealth-server.js",
+    "install-browser": "patchright install chrome"
+  },
+  "dependencies": {
+    "patchright": "^1.58.2"
+  }
+}

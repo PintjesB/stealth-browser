@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+.env
+.env.*
+contexts
+tmp
+npm-debug.log*
+yarn-error.log*
