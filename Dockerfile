@@ -12,7 +12,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
     ca-certificates \
     fonts-liberation \
     libasound2 \
@@ -34,9 +36,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libstdc++6 \
+    libssl3 \
     libx11-6 \
     libx11-xcb1 \
     libxcb1 \
+    openssl \
     libxcomposite1 \
     libxdamage1 \
     libxext6 \
