@@ -8,6 +8,9 @@ on:
     tags:
       - 'v*'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: stealth-browser-${{ github.ref }}
   cancel-in-progress: true
@@ -19,10 +22,10 @@ jobs:
       contents: read
     steps:
       - name: Check out source
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903
         with:
           node-version: '20'
           cache: npm
@@ -39,12 +42,12 @@ jobs:
       contents: read
     steps:
       - name: Check out source
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
         with:
           python-version: '3.12'
 
@@ -60,13 +63,13 @@ jobs:
       contents: read
     steps:
       - name: Check out source
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Build image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f
         with:
           context: .
           load: true
@@ -74,7 +77,8 @@ jobs:
           provenance: false
           sbom: false
 
-      - name: Scan built image
+      - name: Scan built image on release refs
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           image-ref: stealth-browser:ci
@@ -83,10 +87,29 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
 
+      - name: Scan built image on branch and PR refs
+        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          image-ref: stealth-browser:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+
       - name: Smoke test runtime
         shell: bash
         run: |
-          cid="$(docker run -d -p 17332:7332 -e BROWSER_WARMUP_ON_START=1 stealth-browser:ci)"
+          mkdir -p "${RUNNER_TEMP}/stealth-contexts"
+          cid="$(docker run -d -p 17332:7332 \
+            --tmpfs /tmp:size=256m,mode=1777 \
+            -v "${RUNNER_TEMP}/stealth-contexts:/contexts" \
+            -e HOME=/tmp \
+            -e XDG_CONFIG_HOME=/tmp/.config \
+            -e XDG_CACHE_HOME=/tmp/.cache \
+            -e CONTEXTS_DIR=/contexts \
+            -e BROWSER_WARMUP_ON_START=1 \
+            stealth-browser:ci)"
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           for _ in {1..30}; do
             if curl -fsS http://127.0.0.1:17332/health > /tmp/health.json; then
@@ -115,7 +138,7 @@ jobs:
       packages: write
     steps:
       - name: Check out source
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
@@ -162,7 +185,7 @@ jobs:
 
       - name: Build and publish image
         id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f
         with:
           context: .
           push: true
