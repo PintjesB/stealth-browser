@@ -14,6 +14,12 @@ PATTERNS = {
     "openai_key": re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
     "slack_token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
     "private_key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
+    "generic_secret_assignment": re.compile(
+        r"(?i)\b(?:password|passwd|pwd|secret|api[_-]?key|client[_-]?secret|"
+        r"(?:access|refresh|admin|auth|bearer|github|client)[_-]?token)\b\s*[:=]\s*['\"]?"
+        r"(?!replace-me\b|changeme\b|example\b|sample\b|dummy\b|test\b|your-|<)"
+        r"[A-Za-z0-9._~+/\-=]{12,}['\"]?"
+    ),
 }
 
 ALLOWLIST = {
@@ -33,6 +39,8 @@ def tracked_files():
 def scan_tree():
     findings = []
     for file_path in tracked_files():
+        if not file_path.exists():
+            continue
         try:
             content = file_path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
