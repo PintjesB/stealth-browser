@@ -34,6 +34,8 @@ Reusable Patchright-based stealth browser service with a small HTTP API.
 ```bash
 npm ci
 npm run install-browser
+./scripts/install_git_hooks.sh
+./scripts/run_local_gate.sh
 node stealth-server.js
 ```
 
@@ -57,8 +59,17 @@ Run:
 docker run --rm -p 7332:7332 -e BROWSER_WARMUP_ON_START=1 stealth-browser:test
 ```
 
+## Verification
+
+```bash
+python3 scripts/scan_secrets.py --tree --history
+node --check stealth-server.js
+npm audit --package-lock-only --omit=dev --audit-level=high
+```
+
 ## Notes
 
 - `POST /scrape` accepts `url`, optional `actions`, optional `timeout`, and optional `full_html`.
 - `POST /context/clear` accepts `domain`.
 - Prefer digest-pinned image references in downstream deployments.
+- The local git hooks run a fast secret scan on `pre-commit` and the local gate on `pre-push`.

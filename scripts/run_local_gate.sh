@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# run_local_gate.sh - mirrors the fast verification path used by CI.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,13 +9,20 @@ if [[ -d /dev/shm && -w /dev/shm ]]; then
   export TMPDIR=/dev/shm
 fi
 
-echo "[gate] secret scan"
+step() { echo; echo "[gate] $*"; }
+ok()   { echo "  ok: $*"; }
+
+step "secret scan (tree + history)"
 python3 scripts/scan_secrets.py --tree --history
+ok "no secrets detected"
 
-echo "[gate] syntax check"
+step "server syntax check"
 node --check stealth-server.js
+ok "syntax valid"
 
-echo "[gate] npm audit"
+step "runtime dependency audit"
 npm audit --package-lock-only --omit=dev --audit-level=high
+ok "no high/critical runtime advisories"
 
-echo "[gate] ok"
+echo
+echo "[gate] all checks passed"

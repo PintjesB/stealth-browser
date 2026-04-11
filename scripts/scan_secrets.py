@@ -1,99 +1,137 @@
 #!/usr/bin/env python3
+"""Scan the git working tree and/or full reachable history for secret-like material.
+
+Usage
+-----
+  python3 scripts/scan_secrets.py              # both tree + history (default)
+  python3 scripts/scan_secrets.py --tree       # tracked files only
+  python3 scripts/scan_secrets.py --history    # git history only
+"""
+
+from __future__ import annotations
+
 import argparse
 import pathlib
 import re
 import subprocess
 import sys
 
-PATTERNS = {
-    "discord_webhook": re.compile(r"https://discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9._-]+"),
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+ALLOWLIST_SUBSTRINGS: frozenset[str] = frozenset({
+    "https://discord.com/api/webhooks/1/test",
+    "replace-me",
+    "changeme",
+    "<your-token-here>",
+})
+
+PATTERNS: dict[str, re.Pattern[str]] = {
+    "discord_webhook": re.compile(
+        r"https://(?:discord|discordapp)\.com/api/webhooks/\d+/[A-Za-z0-9._-]+"
+    ),
     "github_pat": re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    "github_classic": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    "github_token": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
     "aws_access_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    "google_api_key": re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b"),
-    "openai_key": re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
+    "google_api_key": re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
+    "openai_style_secret": re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
     "slack_token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
-    "private_key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
+    "private_key_header": re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----"),
     "generic_secret_assignment": re.compile(
         r"(?i)\b(?:password|passwd|pwd|secret|api[_-]?key|client[_-]?secret|"
-        r"(?:access|refresh|admin|auth|bearer|github|client)[_-]?token)\b\s*[:=]\s*['\"]?"
+        r"(?:access|refresh|admin|auth|bearer|github|client)[_-]?token)\b"
+        r"\s*[:=]\s*['\"]?"
         r"(?!replace-me\b|changeme\b|example\b|sample\b|dummy\b|test\b|your-|<)"
-        r"[A-Za-z0-9._~+/\-=]{12,}['\"]?"
+        r"[A-Za-z0-9._~+/\-=]{12,}"
+        r"['\"]?"
     ),
 }
 
-ALLOWLIST = {
-    "https://discord.com/api/webhooks/1/test",
-}
+
+def _run(*args: str) -> str:
+    proc = subprocess.run(args, cwd=ROOT, check=False, capture_output=True, text=True)
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(proc.stderr.strip() or f"command failed: {' '.join(args)}")
+    return proc.stdout
 
 
-def run(cmd):
-    return subprocess.run(cmd, check=True, capture_output=True, text=True)
+def _is_allowed(match: str) -> bool:
+    return any(fragment in match for fragment in ALLOWLIST_SUBSTRINGS)
 
 
-def tracked_files():
-    output = run(["git", "ls-files"]).stdout.splitlines()
-    return [pathlib.Path(path) for path in output if path]
-
-
-def scan_tree():
-    findings = []
-    for file_path in tracked_files():
-        if not file_path.exists():
+def scan_tree() -> list[str]:
+    findings: list[str] = []
+    tracked = [path for path in _run("git", "ls-files").splitlines() if path]
+    for rel_path in tracked:
+        path = ROOT / rel_path
+        if not path.exists():
             continue
         try:
-            content = file_path.read_text(encoding="utf-8")
+            content = path.read_text(encoding="utf-8", errors="strict")
         except (UnicodeDecodeError, OSError):
             continue
         for name, pattern in PATTERNS.items():
             for match in pattern.finditer(content):
-                if match.group(0) in ALLOWLIST:
+                token = match.group(0)
+                if _is_allowed(token):
                     continue
-                line = content.count("\n", 0, match.start()) + 1
-                findings.append(f"tree:{file_path}:{line}:{name}")
+                line_no = content.count("\n", 0, match.start()) + 1
+                findings.append(f"tree  {rel_path}:{line_no}  [{name}]  {token[:80]}")
     return findings
 
 
-def scan_history():
-    findings = []
-    revisions = run(["git", "rev-list", "--all"]).stdout.splitlines()
-    if not revisions:
+def scan_history() -> list[str]:
+    findings: list[str] = []
+    revs = [rev for rev in _run("git", "rev-list", "--all").splitlines() if rev]
+    if not revs:
         return findings
     for name, pattern in PATTERNS.items():
-        grep = subprocess.run(
-            ["git", "grep", "-nIP", "-e", pattern.pattern, *revisions],
+        proc = subprocess.run(
+            ["git", "grep", "-nIP", "-e", pattern.pattern, *revs],
+            cwd=ROOT,
+            check=False,
             capture_output=True,
             text=True,
-            check=False,
         )
-        for line in grep.stdout.splitlines():
-            if any(allowed in line for allowed in ALLOWLIST):
+        if proc.returncode not in (0, 1):
+            raise RuntimeError(proc.stderr.strip() or f"git grep failed for pattern '{name}'")
+        for line in proc.stdout.splitlines():
+            if _is_allowed(line):
                 continue
-            findings.append(f"history:{name}:{line}")
+            findings.append(f"history  [{name}]  {line[:120]}")
     return findings
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--tree", action="store_true")
-    parser.add_argument("--history", action="store_true")
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--tree", action="store_true", help="Scan tracked files in the working tree.")
+    parser.add_argument("--history", action="store_true", help="Scan full reachable git history.")
     args = parser.parse_args()
 
-    if not args.tree and not args.history:
-        parser.error("select at least one scan mode")
+    do_tree = args.tree or not (args.tree or args.history)
+    do_history = args.history or not (args.tree or args.history)
 
-    findings = []
-    if args.tree:
+    findings: list[str] = []
+    if do_tree:
         findings.extend(scan_tree())
-    if args.history:
+    if do_history:
         findings.extend(scan_history())
 
     if findings:
-        print("\n".join(findings))
+        print("Secret scan FAILED. Findings:", file=sys.stderr)
+        for finding in findings:
+            print(f"  {finding}", file=sys.stderr)
+        print(
+            "\nIf a finding is a false positive, add the exact substring to "
+            "ALLOWLIST_SUBSTRINGS in scripts/scan_secrets.py.",
+            file=sys.stderr,
+        )
         return 1
-    print("secret scan passed")
+
+    print("Secret scan passed.")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

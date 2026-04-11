@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# .githooks/pre-push
+# Runs the local verification gate before anything reaches the remote.
+# To bypass in an emergency: git push --no-verify
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"

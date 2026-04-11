@@ -1,5 +1,7 @@
 version: 2
 updates:
+  # Keep GitHub Actions action SHAs current - these are pinned by hash in the
+  # workflow so Dependabot PRs are the only reliable update path.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -9,6 +11,7 @@ updates:
     commit-message:
       prefix: "ci"
 
+  # Runtime Node dependencies
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -17,7 +20,13 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps"
+    groups:
+      npm-patch-minor:
+        update-types:
+          - "minor"
+          - "patch"
 
+  # Dockerfile base images
   - package-ecosystem: "docker"
     directory: "/"
     schedule:

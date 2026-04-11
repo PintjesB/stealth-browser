@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
+# .githooks/pre-commit
+# Fast checks only - anything slow lives in pre-push / run_local_gate.sh.
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 cd "$ROOT_DIR"
 
-echo "[pre-commit] secret scan"
+echo "[pre-commit] secret scan (staged tree)"
 python3 scripts/scan_secrets.py --tree
