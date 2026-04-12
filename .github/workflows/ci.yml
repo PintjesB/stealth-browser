@@ -63,7 +63,7 @@ jobs:
           python-version: "3.12"
 
       - name: Scan tracked files and reachable history for secrets
-        run: python3 scripts/scan_secrets.py --tree --history
+        run: python3 .github/scripts/scan_secrets.py --tree --history
 
   build-validate:
     name: Build / scan / smoke

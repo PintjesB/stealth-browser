@@ -3,9 +3,9 @@
 
 Usage
 -----
-  python3 scripts/scan_secrets.py              # both tree + history (default)
-  python3 scripts/scan_secrets.py --tree       # tracked files only
-  python3 scripts/scan_secrets.py --history    # git history only
+  python3 .github/scripts/scan_secrets.py              # both tree + history (default)
+  python3 .github/scripts/scan_secrets.py --tree       # tracked files only
+  python3 .github/scripts/scan_secrets.py --history    # git history only
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import re
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 ALLOWLIST_SUBSTRINGS: frozenset[str] = frozenset({
     "https://discord.com/api/webhooks/1/test",
@@ -124,7 +124,7 @@ def main() -> int:
             print(f"  {finding}", file=sys.stderr)
         print(
             "\nIf a finding is a false positive, add the exact substring to "
-            "ALLOWLIST_SUBSTRINGS in scripts/scan_secrets.py.",
+            "ALLOWLIST_SUBSTRINGS in .github/scripts/scan_secrets.py.",
             file=sys.stderr,
         )
         return 1

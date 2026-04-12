@@ -2,7 +2,7 @@
 # run_local_gate.sh - mirrors the fast verification path used by CI.
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 if [[ -d /dev/shm && -w /dev/shm ]]; then
@@ -13,7 +13,7 @@ step() { echo; echo "[gate] $*"; }
 ok()   { echo "  ok: $*"; }
 
 step "secret scan (tree + history)"
-python3 scripts/scan_secrets.py --tree --history
+python3 .github/scripts/scan_secrets.py --tree --history
 ok "no secrets detected"
 
 step "server syntax check"

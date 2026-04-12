@@ -34,8 +34,8 @@ Reusable Patchright-based stealth browser service with a small HTTP API.
 ```bash
 npm ci
 npm run install-browser
-./scripts/install_git_hooks.sh
-./scripts/run_local_gate.sh
+./.github/scripts/install_git_hooks.sh
+./.github/scripts/run_local_gate.sh
 node stealth-server.js
 ```
 
@@ -62,7 +62,7 @@ docker run --rm -p 7332:7332 -e BROWSER_WARMUP_ON_START=1 stealth-browser:test
 ## Verification
 
 ```bash
-python3 scripts/scan_secrets.py --tree --history
+python3 .github/scripts/scan_secrets.py --tree --history
 node --check stealth-server.js
 npm audit --package-lock-only --omit=dev --audit-level=high
 ```

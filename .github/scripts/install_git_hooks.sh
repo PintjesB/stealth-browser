@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# scripts/install_git_hooks.sh
+# .github/scripts/install_git_hooks.sh
 # Run once after cloning to wire up the project's git hooks.
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 chmod +x \
   .githooks/pre-commit \
   .githooks/pre-push \
-  scripts/run_local_gate.sh \
-  scripts/scan_secrets.py
+  .github/scripts/run_local_gate.sh \
+  .github/scripts/scan_secrets.py
 
 git config core.hooksPath .githooks
 
