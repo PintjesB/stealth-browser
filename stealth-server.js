@@ -295,39 +295,6 @@ function normalizeScrapeUrl(rawUrl) {
   return parsed.toString();
 }
 
-function isEbayChallengeState(pageUrl, pageTitle, bodyText) {
-  const url = String(pageUrl || '').toLowerCase();
-  const title = String(pageTitle || '').toLowerCase();
-  const body = String(bodyText || '').toLowerCase();
-  return (
-    url.includes('ebay.') &&
-    (
-      url.includes('/splashui/challenge') ||
-      title.includes('sorry for the interruption') ||
-      title.includes('sorry voor de onderbreking') ||
-      body.includes('your browser is being checked') ||
-      body.includes('uw browser wordt gecontroleerd voordat u naar ebay gaat')
-    )
-  );
-}
-
-function shouldApplyEbaySettleWait(targetUrl, pageUrl) {
-  const target = String(targetUrl || '').toLowerCase();
-  const current = String(pageUrl || '').toLowerCase();
-  return target.includes('ebay.') || current.includes('ebay.');
-}
-
-async function waitForKnownChallengeResolution(page, timeout) {
-  const maxWaitMs = Math.min(10_000, Math.max(3_000, Math.floor(timeout * 0.25)));
-  const pageTitle = await page.title().catch(() => '');
-  const bodyText = await page.locator('body').innerText({ timeout: 1_000 }).catch(() => '');
-  if (isEbayChallengeState(page.url(), pageTitle, bodyText)) {
-    await page.waitForTimeout(maxWaitMs);
-  }
-
-  await page.waitForLoadState('domcontentloaded', { timeout: 2_000 }).catch(() => {});
-}
-
 async function handleScrape(body) {
   const url = normalizeScrapeUrl(body.url);
   const actions = normalizeActions(body.actions || []);
@@ -344,10 +311,6 @@ async function handleScrape(body) {
   try {
     page = await context.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
-    if (shouldApplyEbaySettleWait(url, page.url())) {
-      await page.waitForTimeout(Math.min(8_000, timeout));
-    }
-    await waitForKnownChallengeResolution(page, timeout);
 
     for (const action of actions) {
       switch (action.type) {
@@ -368,8 +331,6 @@ async function handleScrape(body) {
           break;
       }
     }
-
-    await waitForKnownChallengeResolution(page, timeout);
 
     const extracted = await page.evaluate((pageUrl) => {
       const clean = (value) => (value || '').replace(/\s+/g, ' ').trim();
