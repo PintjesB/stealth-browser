@@ -311,6 +311,12 @@ function isEbayChallengeState(pageUrl, pageTitle, bodyText) {
   );
 }
 
+function shouldApplyEbaySettleWait(targetUrl, pageUrl) {
+  const target = String(targetUrl || '').toLowerCase();
+  const current = String(pageUrl || '').toLowerCase();
+  return target.includes('ebay.') || current.includes('ebay.');
+}
+
 async function waitForKnownChallengeResolution(page, timeout) {
   const maxWaitMs = Math.min(10_000, Math.max(3_000, Math.floor(timeout * 0.25)));
   const pageTitle = await page.title().catch(() => '');
@@ -338,6 +344,9 @@ async function handleScrape(body) {
   try {
     page = await context.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+    if (shouldApplyEbaySettleWait(url, page.url())) {
+      await page.waitForTimeout(Math.min(8_000, timeout));
+    }
     await waitForKnownChallengeResolution(page, timeout);
 
     for (const action of actions) {
