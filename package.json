@@ -12,6 +12,6 @@
     "install-browser": "patchright install chrome"
   },
   "dependencies": {
-    "patchright": "^1.59.4"
+    "patchright": "^1.60.0"
   }
 }
