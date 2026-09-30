@@ -11,6 +11,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 concurrency:
   group: stealth-browser-${{ github.ref }}
