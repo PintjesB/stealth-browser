@@ -1,3 +1,44 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json"
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":enableVulnerabilityAlertsWithLabel('security')",
+    ":rebaseStalePrs",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "Europe/Brussels",
+  "labels": [
+    "renovate"
+  ],
+  "platformAutomerge": false,
+  "automergeType": "pr",
+  "automerge": false,
+  "ignoreTests": false,
+  "packageRules": [
+    {
+      "description": "Group routine Patchright npm updates for CI-backed manual review",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
+      "groupName": "npm patch and minor updates"
+    },
+    {
+      "description": "Keep GitHub Actions changes manual because CI also publishes signed images",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Keep Docker base-image changes manual",
+      "matchDatasources": [
+        "docker"
+      ],
+      "automerge": false
+    }
+  ]
 }
