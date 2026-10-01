@@ -20,6 +20,25 @@ concurrency:
 permissions: {}
 
 jobs:
+  renovate-config:
+    name: Validate Renovate configuration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up current Node.js LTS
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v4
+        with:
+          node-version: "lts/*"
+
+      - name: Validate Renovate configuration
+        run: npx --yes --package renovate -- renovate-config-validator --strict
+
   verify:
     name: Verify (audit / syntax)
     runs-on: ubuntu-latest
