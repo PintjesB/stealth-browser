@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - "**"
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -14,7 +14,7 @@ env:
   DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 concurrency:
-  group: stealth-browser-${{ github.ref }}
+  group: stealth-browser-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions: {}
@@ -45,6 +45,9 @@ jobs:
 
       - name: Check server syntax
         run: node --check stealth-server.js
+
+      - name: Run unit tests
+        run: npm test
 
   secret-scan:
     name: Secret scan (tree + history)
@@ -91,10 +94,12 @@ jobs:
           tags: stealth-browser:ci
           provenance: false
           sbom: false
+          cache-from: type=gha,scope=stealth-browser
+          cache-to: type=gha,mode=min,scope=stealth-browser
 
       - name: Scan built image on release refs
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.28
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: stealth-browser:ci
           format: table
@@ -104,7 +109,7 @@ jobs:
 
       - name: Scan built image on branch and PR refs
         if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.28
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: stealth-browser:ci
           format: table
@@ -210,8 +215,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=stealth-browser
+          cache-to: type=gha,mode=min,scope=stealth-browser
 
       - name: Install cosign
         uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v3
