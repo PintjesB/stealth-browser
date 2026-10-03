@@ -46,6 +46,9 @@ jobs:
       - name: Check server syntax
         run: node --check stealth-server.js
 
+      - name: Run unit tests
+        run: npm test
+
   secret-scan:
     name: Secret scan (tree + history)
     runs-on: ubuntu-latest
