@@ -565,14 +565,26 @@ async function start() {
   });
 }
 
-process.on('SIGTERM', () => {
-  shutdown(0).catch(() => process.exit(1));
-});
-process.on('SIGINT', () => {
-  shutdown(0).catch(() => process.exit(1));
-});
+if (require.main === module) {
+  process.on('SIGTERM', () => {
+    shutdown(0).catch(() => process.exit(1));
+  });
+  process.on('SIGINT', () => {
+    shutdown(0).catch(() => process.exit(1));
+  });
 
-start().catch((error) => {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
+  start().catch((error) => {
+    console.error(error && error.stack ? error.stack : String(error));
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  clampTimeout,
+  domainOf,
+  normalizeActions,
+  normalizeDomain,
+  normalizeScrapeUrl,
+  normalizeSelector,
+  parseBody,
+};
