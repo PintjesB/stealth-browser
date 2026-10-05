@@ -16,29 +16,155 @@
   "ignoreTests": false,
   "packageRules": [
     {
-      "description": "Group routine Patchright npm updates for CI-backed manual review",
+      "description": "Automerge npm dependency patches after CI",
       "matchManagers": [
         "npm"
       ],
       "matchUpdateTypes": [
-        "patch",
-        "minor"
+        "patch"
       ],
-      "groupName": "npm patch and minor updates"
+      "automerge": true
     },
     {
-      "description": "Keep GitHub Actions changes manual because CI also publishes signed images",
+      "description": "Automerge npm lockfile maintenance after CI",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "lockFileMaintenance"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge stable Python and npm minors after CI",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "matchCurrentVersion": "/^[1-9]\\d*\\.\\d+(?:\\.\\d+)?$/",
+      "automerge": true
+    },
+    {
+      "description": "Automerge explicitly tested validation Actions after CI",
       "matchManagers": [
         "github-actions"
       ],
-      "automerge": false
+      "matchPackageNames": [
+        "actions/setup-node",
+        "actions/setup-python",
+        "aquasecurity/trivy-action"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "minor",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "automerge": true
     },
     {
-      "description": "Keep Docker base-image changes manual",
+      "description": "Automerge actionlint updates exercised by workflow lint",
       "matchDatasources": [
         "docker"
       ],
+      "matchPackageNames": [
+        "rhysd/actionlint"
+      ],
+      "matchFileNames": [
+        ".github/workflows/workflow-lint.yml"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "minor",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge covered stateless image patches and immutable pins after CI",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "node",
+        "gcr.io/distroless/nodejs20-debian12"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Keep untested and privileged GitHub Actions manual",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "!actions/setup-node",
+        "!actions/setup-python",
+        "!aquasecurity/trivy-action"
+      ],
       "automerge": false
+    },
+    {
+      "description": "Keep CI runtime toolchains manual",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "python",
+        "node"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Require Dependency Dashboard approval for stateful database and datastore images",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "/^(?:[^/]+\\/)*(?:postgres|postgresql|redis|valkey|mariadb|mysql|mongo|mongodb|elasticsearch|opensearch|influxdb|clickhouse|cockroachdb|couchdb|timescaledb|postgres-documentdb)$/",
+        "mcr.microsoft.com/mssql/server"
+      ],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Keep pre-1.0 and prerelease dependency minors manual",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "matchCurrentVersion": "!/^[1-9]\\d*\\.\\d+(?:\\.\\d+)?$/",
+      "automerge": false
+    },
+    {
+      "description": "Keep major dependency updates manual",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Keep manual updates out of automatic dependency groups",
+      "matchJsonata": [
+        "automerge = false"
+      ],
+      "groupName": null,
+      "groupSlug": null
     }
   ],
   "customManagers": [
@@ -55,5 +181,11 @@
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
     }
-  ]
+  ],
+  "internalChecksAsSuccess": false,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": false,
+    "groupName": null
+  }
 }
