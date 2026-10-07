@@ -185,7 +185,7 @@
         "automerge = true"
       ],
       "addLabels": [
-        "renovate:auto-merge"
+        "auto merge"
       ]
     },
     {
@@ -194,7 +194,7 @@
         "automerge = false"
       ],
       "addLabels": [
-        "renovate:manual-merge"
+        "manual merge"
       ]
     }
   ],
