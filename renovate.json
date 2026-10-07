@@ -165,6 +165,19 @@
       ],
       "groupName": null,
       "groupSlug": null
+    },
+    {
+      "description": "Review Node majors as coordinated runtime migrations",
+      "matchPackageNames": [
+        "node"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "groupName": "Node runtime major migration",
+      "groupSlug": "node-runtime-major-migration",
+      "dependencyDashboardApproval": true,
+      "automerge": false
     }
   ],
   "customManagers": [
@@ -185,7 +198,7 @@
   "internalChecksAsSuccess": false,
   "lockFileMaintenance": {
     "enabled": true,
-    "automerge": false,
+    "automerge": true,
     "groupName": null
   }
 }
