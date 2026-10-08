@@ -41,7 +41,7 @@ class SecretScannerRedactionTests(unittest.TestCase):
 
         def fake_run(argv, **_kwargs):
             if argv[:2] == ["git", "grep"] and argv[-1] == revision:
-                if "gh[pousr]_" in argv[3]:
+                if "gh[pousr]_" in argv[4]:
                     return SimpleNamespace(returncode=0, stdout=git_grep, stderr="")
             return SimpleNamespace(returncode=1, stdout="", stderr="")
 
