@@ -154,6 +154,10 @@ jobs:
           docker logs "$cid"
           exit 1
 
+      - name: Exercise real Chrome navigation and persistent sessions
+        shell: bash
+        run: python3 tests/test_browser_integration.py
+
   publish:
     name: Publish image
     if: >
