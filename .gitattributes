@@ -1,0 +1,2 @@
+# Preserve Unix line endings for scripts on Windows checkouts.
+*.sh text eol=lf
