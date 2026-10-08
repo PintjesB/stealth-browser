@@ -71,7 +71,7 @@ jobs:
               currentValue: version, currentVersion: version, lockedVersion: version, versioning: 'semver' }, want]);
           const routine = ['patch', 'minor', 'pin', 'pinDigest', 'digest'];
           for (const [manager, file] of [["npm", "package.json"]]) {
-            for (const [update, want, version] of [['patch',true,'0.3.0'], ['minor',true,'1.2.3'],
+            for (const [update, want, version] of [['patch',true,'0.3.0'], ['minor',false,'1.2.3'],
               ['minor',false,'0.3.0'], ['major',false,'1.2.3'], ['minor',false,'1.2.3-beta.1']]) {
               add(manager, manager === 'npm' ? 'patchright' : 'redis', update, want, file, version);
             }
@@ -99,6 +99,16 @@ jobs:
               pkg, update, false, "package.json", '1.2.3', ['@openai/codex','chromatic'].includes(pkg) ? 'npm' : 'github-releases');
           }
           add('unknown-manager', 'unknown/package', 'patch', false, 'unknown');
+          add('npm', 'patchright', 'patch', true, 'package.json', '1.59.4');
+          add('npm', 'patchright', 'minor', false, 'package.json', '1.59.4');
+          add('npm', 'patchright', 'major', false, 'package.json', '1.59.4');
+          const npmManifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const npmLock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          assert.ok(npmManifest.dependencies.patchright.startsWith('~'), 'Manual-minor Patchright must be patch-range pinned');
+          assert.equal(npmLock.packages[''].dependencies.patchright, npmManifest.dependencies.patchright);
+          assert.equal(raw.statusCheckWhen?.artifactError,'always','Renovate artifact validation must be visible');
+          assert.equal(raw.internalChecksFilter,'strict','Do not open unaged npm release branches');
+          assert.ok(raw.packageRules.some(rule => rule.matchDatasources?.includes('npm') && rule.minimumReleaseAge === '3 days'), 'npm release cooldown must be configured');
           const failures = [];
           for (const [dependency, want] of cases) {
             const result = await applyPackageRules({ ...config, ...dependency });
