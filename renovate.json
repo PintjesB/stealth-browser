@@ -180,6 +180,26 @@
       "automerge": false
     },
     {
+      "description": "Wait three days before selecting npm releases, including transitive lockfile resolutions where supported",
+      "matchDatasources": [
+        "npm"
+      ],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Review Patchright minors until navigation and persistent-context behavior are covered",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "patchright"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "automerge": false
+    },
+    {
       "description": "Label dependency PRs Renovate will auto-merge",
       "matchJsonata": [
         "automerge = true"
@@ -218,5 +238,9 @@
     "enabled": true,
     "automerge": true,
     "groupName": null
-  }
+  },
+  "statusCheckWhen": {
+    "artifactError": "always"
+  },
+  "internalChecksFilter": "strict"
 }
