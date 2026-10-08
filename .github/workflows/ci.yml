@@ -79,6 +79,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify secret scanner redaction
+        run: python3 -m unittest discover -s tests -p 'test_secret_scanner.py'
+
       - name: Scan tracked files and reachable history for secrets
         run: python3 .github/scripts/scan_secrets.py --tree --history
 
