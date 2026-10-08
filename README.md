@@ -73,3 +73,16 @@ npm audit --package-lock-only --omit=dev --audit-level=high
 - `POST /context/clear` accepts `domain`.
 - Prefer digest-pinned image references in downstream deployments.
 - The local git hooks run a fast secret scan on `pre-commit` and the local gate on `pre-push`.
+
+## Before making this repository public
+
+GitHub makes existing Actions logs public when repository visibility changes.
+On Windows PowerShell, run `.\\.github\\scripts\\purge_actions_logs.ps1` for a safe dry run
+and `.\\.github\\scripts\\purge_actions_logs.ps1 -Delete` for permanent cleanup.
+On Linux and Git Bash with `gh` available, run
+`bash .github/scripts/purge_actions_logs.sh --dry-run` and then
+`bash .github/scripts/purge_actions_logs.sh --delete`.
+Both require an authenticated GitHub CLI with Actions write permission. This permanently deletes
+historical completed-run logs. Check for remaining artifacts, PR attachments,
+and sensitive content before changing visibility. The script does not change
+repository visibility.
