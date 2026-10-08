@@ -75,7 +75,7 @@ def scan_tree() -> list[str]:
                 if _is_allowed(token):
                     continue
                 line_no = content.count("\n", 0, match.start()) + 1
-                findings.append(f"tree  {rel_path}:{line_no}  [{name}]  {token[:80]}")
+                findings.append(f"tree  {rel_path}:{line_no}  [{name}]")
     return findings
 
 
@@ -95,9 +95,17 @@ def scan_history() -> list[str]:
         if proc.returncode not in (0, 1):
             raise RuntimeError(proc.stderr.strip() or f"git grep failed for pattern '{name}'")
         for line in proc.stdout.splitlines():
-            if _is_allowed(line):
+            # git grep emits <revision>:<path>:<line_number>:<source_text>.
+            # Never print source_text because it may contain live credentials.
+            parts = line.split(":", 3)
+            if len(parts) != 4:
+                findings.append(f"history  [{name}]  (location unavailable)")
                 continue
-            findings.append(f"history  [{name}]  {line[:120]}")
+            revision, file_path, line_no, source_text = parts
+            for match in pattern.finditer(source_text):
+                if _is_allowed(match.group(0)):
+                    continue
+                findings.append(f"history  {revision[:12]}:{file_path}:{line_no}  [{name}]")
     return findings
 
 
@@ -123,8 +131,8 @@ def main() -> int:
         for finding in findings:
             print(f"  {finding}", file=sys.stderr)
         print(
-            "\nIf a finding is a false positive, add the exact substring to "
-            "ALLOWLIST_SUBSTRINGS in .github/scripts/scan_secrets.py.",
+            "\nFor a false positive, refine the detection rule. "
+            "Never commit real credentials or their values to an allowlist.",
             file=sys.stderr,
         )
         return 1
