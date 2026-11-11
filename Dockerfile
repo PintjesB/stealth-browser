@@ -5,6 +5,9 @@ ARG NODE_RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f
 
 FROM ${NODE_BUILDER_IMAGE} AS builder
 
+# Refresh cached Debian security layers after upstream security advisories.
+ARG SECURITY_REFRESH=2026-11-11
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
@@ -12,7 +15,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-RUN apt-get update \
+RUN echo "Security refresh: ${SECURITY_REFRESH}" \
+    && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -57,7 +61,9 @@ RUN npx patchright install chrome
 COPY stealth-server.js README.md ./
 RUN mkdir -p /runtime/home/nonroot/.stealth-browser/browser-contexts /runtime/tmp /runtime/var/lib/dpkg/status.d \
     && awk '/^Package: libssl3t64$/{flag=1} flag{print} /^$/{if(flag){exit}}' /var/lib/dpkg/status \
-      > /runtime/var/lib/dpkg/status.d/libssl3t64
+      > /runtime/var/lib/dpkg/status.d/libssl3t64 \
+    && awk '/^Package: zlib1g$/{flag=1} flag{print} /^$/{if(flag){exit}}' /var/lib/dpkg/status \
+      > /runtime/var/lib/dpkg/status.d/zlib1g
 
 FROM ${NODE_RUNTIME_IMAGE} AS runtime
 
@@ -77,6 +83,7 @@ COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /opt/google/chrome /opt/google/chrome
 COPY --from=builder /runtime/var/lib/dpkg/status.d/libssl3t64 /var/lib/dpkg/status.d/libssl3t64
+COPY --from=builder /runtime/var/lib/dpkg/status.d/zlib1g /var/lib/dpkg/status.d/zlib1g
 COPY --from=builder --chown=65532:65532 /ms-playwright /ms-playwright
 COPY --from=builder --chown=65532:65532 /app/node_modules /app/node_modules
 COPY --from=builder --chown=65532:65532 /app/package.json /app/package.json
