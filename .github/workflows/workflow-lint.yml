@@ -66,4 +66,7 @@ jobs:
           chmod 0755 "${RUNNER_TEMP}/pyflakes"
           export PATH="${RUNNER_TEMP}:${PATH}"
           command -v pyflakes
-          "${RUNNER_TEMP}/actionlint" -color
+          # GitHub added concurrency.queue in May 2026. Pinned actionlint 1.7.12
+          # rejects that documented key; suppress only this known parser false positive.
+          # Keep all other actionlint, shellcheck and pyflakes validations active.
+          "${RUNNER_TEMP}/actionlint" -color -ignore 'unexpected key "queue" for "concurrency" section'

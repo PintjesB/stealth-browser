@@ -16,6 +16,7 @@ permissions:
 concurrency:
   group: verified-image-semver-main
   cancel-in-progress: false
+  queue: max
 
 jobs:
   tag-verified-image:
@@ -77,7 +78,8 @@ jobs:
           DEFAULT_BRANCH: "main"
           VERSION_FLOOR: "1.0.0"
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          trap 'code=$?; echo "::error::Image release failed at line $LINENO (exit $code)"; exit "$code"' ERR
           git fetch --force --tags origin
           latest="$(git tag --merged "$HEAD_SHA" --list 'image-v[0-9]*' |
             grep -E '^image-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
@@ -104,16 +106,36 @@ jobs:
           version="$major.$minor.$patch"
           tag="image-v$version"
 
+          # Treat unknown tag and registry outage differently: a lookup failure
+          # is never permission to overwrite an immutable SemVer release.
+          inspect_digest() {
+            local ref="$1" allow_missing="$2" attempt result digest
+            for attempt in 1 2 3; do
+              if result="$(docker buildx imagetools inspect "$ref" 2>&1)"; then
+                digest="$(awk '$1 == "Digest:" {print $2; exit}' <<< "$result")"
+                if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                  echo "::error::Invalid registry digest for $ref" >&2
+                  return 1
+                fi
+                printf '%s\n' "$digest"
+                return 0
+              fi
+              if [[ "$allow_missing" == true ]] &&
+                 grep -Eiq '(manifest unknown|name unknown|manifest not found|404 Not Found)' <<< "$result"; then
+                return 0
+              fi
+              echo "::warning::Registry inspection failed for $ref, attempt $attempt/3" >&2
+              printf '%s\n' "$result" >&2
+              if (( attempt < 3 )); then sleep $((attempt * 5)); fi
+            done
+            echo "::error::Registry inspection unavailable for $ref; refusing to modify tags" >&2
+            return 1
+          }
+
           # The verified image was already published by the successful upstream workflow.
           source="$IMAGE:sha-${HEAD_SHA:0:12}"
-          source_digest="$(docker buildx imagetools inspect "$source" |
-            awk '$1 == "Digest:" {print $2; exit}')"
-          if [[ ! "$source_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::Cannot resolve verified image digest for $source"
-            exit 1
-          fi
-          existing="$(docker buildx imagetools inspect "$IMAGE:$version" 2>/dev/null |
-            awk '$1 == "Digest:" {print $2; exit}' || true)"
+          source_digest="$(inspect_digest "$source" false)"
+          existing="$(inspect_digest "$IMAGE:$version" true)"
           if [[ -n "$existing" && "$existing" != "$source_digest" ]]; then
             echo "::error::Immutable SemVer tag collision for $IMAGE:$version"
             exit 1
@@ -124,11 +146,33 @@ jobs:
             echo "Default branch advanced; the subsequent run will release the new head"
             exit 0
           fi
-          docker buildx imagetools create \
-            --tag "$IMAGE:$version" \
-            "$IMAGE@$source_digest"
-          actual="$(docker buildx imagetools inspect "$IMAGE:$version" |
-            awk '$1 == "Digest:" {print $2; exit}')"
+          # Idempotent retries: GHCR can return transient errors after a successful
+          # source publication. Preserve the verified manifest digest; never overwrite
+          # a SemVer tag pointing to a different digest.
+          if [[ "$existing" != "$source_digest" ]]; then
+            for attempt in 1 2 3; do
+              # Another attempt may already have published the digest even
+              # when the registry response to the previous attempt failed.
+              existing="$(inspect_digest "$IMAGE:$version" true)"
+              if [[ "$existing" == "$source_digest" ]]; then break; fi
+              if [[ -n "$existing" ]]; then
+                echo "::error::Immutable SemVer tag collision while retrying"
+                exit 1
+              fi
+              if docker buildx imagetools create --prefer-index=false \
+                  --tag "$IMAGE:$version" "$IMAGE@$source_digest"; then
+                break
+              fi
+              if (( attempt == 3 )); then
+                echo "::error::Cannot publish verified SemVer image after 3 attempts"
+                exit 1
+              fi
+              sleep $((attempt * 5))
+            done
+          else
+            echo "Verified SemVer image tag already exists; retaining its digest"
+          fi
+          actual="$(inspect_digest "$IMAGE:$version" false)"
           [[ "$actual" == "$source_digest" ]] || { echo "::error::Image digest mismatch"; exit 1; }
 
           # Commit metadata remains at the application version; image-v* tags track
