@@ -86,15 +86,18 @@ jobs:
           VERSION_FLOOR: "1.0.0"
         run: |
           set -euo pipefail
-          # A verified build may finish after another main branch commit.
+          # The default branch may advance while the verified image is building.
+          # Fetch authentication is necessary for private repositories after
+          # checkout with persist-credentials=false.
           gh auth setup-git
           git fetch --force --tags origin "$DEFAULT_BRANCH"
           if ! git merge-base --is-ancestor "$HEAD_SHA" FETCH_HEAD; then
             echo "Skip obsolete build after a force-push: $HEAD_SHA"
             exit 0
           fi
-          # The global highest tag prevents out-of-order builds from releasing
-          # obsolete or colliding SemVer versions.
+
+          # Global highest image tag prevents an older, out-of-order workflow
+          # completion from creating a duplicate or regressive version.
           latest="$(git tag --list 'image-v[0-9]*' |
             grep -E '^image-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
           if [[ -n "$latest" ]]; then
@@ -139,7 +142,8 @@ jobs:
             echo "::error::Immutable SemVer tag collision for $IMAGE:$version"
             exit 1
           fi
-          # Do not skip a verified ancestor image just because main advanced.
+          # Allow a valid ancestor build to release when main has advanced.
+          # A force-pushed or detached history must never be promoted.
           git fetch --force origin "$DEFAULT_BRANCH"
           if ! git merge-base --is-ancestor "$HEAD_SHA" FETCH_HEAD; then
             echo "::warning::Skipping superseded non-ancestor build"
