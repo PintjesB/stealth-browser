@@ -1,0 +1,138 @@
+name: Tag verified runtime image with SemVer
+
+# Workflow-run privileges are only used for a successful push build on the default branch.
+# Git tags use image-vX.Y.Z to avoid conflicting with application vX.Y.Z releases.
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: read
+  packages: write
+
+concurrency:
+  group: verified-image-semver-main
+  cancel-in-progress: false
+
+jobs:
+  tag-verified-image:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require successful image publication from the checked commit
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PUBLISH_JOB: "Publish image"
+          DEFAULT_BRANCH: "main"
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --paginate --jq '.jobs[] | select(.name == env.PUBLISH_JOB) | .conclusion' | head -n 1)"
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          if [[ "$status" != success || "$current" != "$HEAD_SHA" ]]; then
+            echo "Skip: publish job status=$status; current default branch=$current; triggering SHA=$HEAD_SHA"
+            exit 0
+          fi
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the published and verified revision
+        if: steps.gate.outputs.eligible == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        if: steps.gate.outputs.eligible == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Authenticate to GHCR
+        if: steps.gate.outputs.eligible == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote verified SHA digest and create immutable image release tag
+        if: steps.gate.outputs.eligible == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          IMAGE: "ghcr.io/pintjesb/stealth-browser"
+          DEFAULT_BRANCH: "main"
+          VERSION_FLOOR: "1.0.0"
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          latest="$(git tag --merged "$HEAD_SHA" --list 'image-v[0-9]*' |
+            grep -E '^image-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+          if [[ -n "$latest" ]]; then
+            if [[ "$(git rev-list -n 1 "$latest")" == "$HEAD_SHA" ]]; then
+              echo "Already released this commit: $latest"
+              exit 0
+            fi
+            previous="${latest#image-v}"
+            commits="$(git log "$latest..$HEAD_SHA" --format='%s%n%b')"
+          else
+            previous="$VERSION_FLOOR"
+            commits=""
+          fi
+
+          IFS=. read -r major minor patch <<< "$previous"
+          if grep -Eiq '(^[a-z]+(\([^)]*\))?!:|^BREAKING CHANGE:)' <<< "$commits"; then
+            major=$((major + 1)); minor=0; patch=0
+          elif grep -Eiq '^feat(\([^)]*\))?:' <<< "$commits"; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+          version="$major.$minor.$patch"
+          tag="image-v$version"
+
+          # The verified image was already published by the successful upstream workflow.
+          source="$IMAGE:sha-${HEAD_SHA:0:12}"
+          source_digest="$(docker buildx imagetools inspect "$source" |
+            awk '$1 == "Digest:" {print $2; exit}')"
+          if [[ ! "$source_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Cannot resolve verified image digest for $source"
+            exit 1
+          fi
+          existing="$(docker buildx imagetools inspect "$IMAGE:$version" 2>/dev/null |
+            awk '$1 == "Digest:" {print $2; exit}' || true)"
+          if [[ -n "$existing" && "$existing" != "$source_digest" ]]; then
+            echo "::error::Immutable SemVer tag collision for $IMAGE:$version"
+            exit 1
+          fi
+          # Fail closed if main moved during the release job.
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          if [[ "$current" != "$HEAD_SHA" ]]; then
+            echo "Default branch advanced; the subsequent run will release the new head"
+            exit 0
+          fi
+          docker buildx imagetools create \
+            --tag "$IMAGE:$version" \
+            "$IMAGE@$source_digest"
+          actual="$(docker buildx imagetools inspect "$IMAGE:$version" |
+            awk '$1 == "Digest:" {print $2; exit}')"
+          [[ "$actual" == "$source_digest" ]] || { echo "::error::Image digest mismatch"; exit 1; }
+
+          # Commit metadata remains at the application version; image-v* tags track
+          # immutable image builds independently and never trigger application tag workflows.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$tag" -f sha="$HEAD_SHA" >/dev/null
+          echo "Published $IMAGE:$version@$source_digest at $HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
