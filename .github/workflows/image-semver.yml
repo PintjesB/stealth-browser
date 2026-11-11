@@ -77,7 +77,8 @@ jobs:
           DEFAULT_BRANCH: "main"
           VERSION_FLOOR: "1.0.0"
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          trap 'code=$?; echo "::error::Image release failed at line $LINENO (exit $code)"; exit "$code"' ERR
           git fetch --force --tags origin
           latest="$(git tag --merged "$HEAD_SHA" --list 'image-v[0-9]*' |
             grep -E '^image-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
@@ -124,9 +125,24 @@ jobs:
             echo "Default branch advanced; the subsequent run will release the new head"
             exit 0
           fi
-          docker buildx imagetools create \
-            --tag "$IMAGE:$version" \
-            "$IMAGE@$source_digest"
+          # Idempotent retries: GHCR can return transient errors after a successful
+          # source publication. Preserve the verified manifest digest; never overwrite
+          # a SemVer tag pointing to a different digest.
+          if [[ "$existing" != "$source_digest" ]]; then
+            for attempt in 1 2 3; do
+              if docker buildx imagetools create --prefer-index=false \
+                  --tag "$IMAGE:$version" "$IMAGE@$source_digest"; then
+                break
+              fi
+              if (( attempt == 3 )); then
+                echo "::error::Cannot publish verified SemVer image after 3 attempts"
+                exit 1
+              fi
+              sleep $((attempt * 5))
+            done
+          else
+            echo "Verified SemVer image tag already exists; retaining its digest"
+          fi
           actual="$(docker buildx imagetools inspect "$IMAGE:$version" |
             awk '$1 == "Digest:" {print $2; exit}')"
           [[ "$actual" == "$source_digest" ]] || { echo "::error::Image digest mismatch"; exit 1; }
