@@ -86,7 +86,7 @@ jobs:
           for (const pkg of ["actions/checkout", "docker/setup-buildx-action", "docker/login-action", "docker/build-push-action", "sigstore/cosign-installer", "unreviewed/validation-action", "python", "node"]) {
             for (const update of [...routine, 'major']) add('github-actions', pkg, update, false, '.github/workflows/ci.yml');
           }
-          for (const pkg of ["node", "gcr.io/distroless/nodejs20-debian12"]) {
+          for (const pkg of ["node", "gcr.io/distroless/nodejs24-debian13"]) {
             for (const update of ['patch','pin','pinDigest','digest']) add('dockerfile', pkg, update, true, 'Dockerfile');
             for (const update of ['minor','major']) add('dockerfile', pkg, update, false, 'Dockerfile');
           }
