@@ -70,6 +70,9 @@ jobs:
           assert.ok(releaseWorkflow.includes('imagetools create --prefer-index=false'));
           assert.ok(releaseWorkflow.includes('Verified SemVer image tag already exists'));
           assert.ok(releaseWorkflow.includes('Image release failed at line'));
+          assert.ok(releaseWorkflow.includes('queue: max'), 'Release events must not replace pending builds');
+          assert.ok(releaseWorkflow.includes('Registry inspection unavailable'), 'Registry outages must fail closed');
+          assert.ok(releaseWorkflow.includes('Immutable SemVer tag collision while retrying'));
           const resolved = await resolveConfigPresets(raw);
           const config = resolved.config ?? resolved;
           const cases = [];
