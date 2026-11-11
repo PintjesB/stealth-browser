@@ -86,32 +86,97 @@ jobs:
           VERSION_FLOOR: "1.0.0"
         run: |
           set -euo pipefail
-          # The default branch may advance while the verified image is building.
-          # Fetch authentication is necessary for private repositories after
-          # checkout with persist-credentials=false.
+
+          # Return an empty digest only for a registry response that confirms absence.
+          inspect_digest() {
+            local reference="$1" result digest
+            if result="$(docker buildx imagetools inspect "$reference" 2>&1)"; then
+              digest="$(awk '$1 == "Digest:" && !found++ { print $2 }' <<< "$result")"
+              if [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                printf '%s\n' "$digest"
+                return
+              fi
+              echo "::error::Invalid image digest for $reference" >&2
+            elif [[ "$result" == "ERROR: $reference: not found" ]]; then
+              return 0
+            else
+              printf '%s\n' "$result" >&2
+            fi
+            return 1
+          }
+
+          publish_version() {
+            local version="$1" revision="$2" digest="$3" existing actual source_digest
+            existing="$(inspect_digest "$IMAGE:$version")"
+            if [[ "$existing" == "$digest" ]]; then
+              echo "Already published $IMAGE:$version@$digest at $revision"
+              return
+            fi
+            if [[ -n "$existing" ]]; then
+              echo "::error::Immutable SemVer tag collision for $IMAGE:$version"
+              return 1
+            fi
+
+            # A Git reservation alone does not authorize an image promotion.
+            source_digest="$(inspect_digest "$IMAGE:sha-${revision:0:12}")"
+            if [[ "$source_digest" != "$digest" ]]; then
+              echo "::error::Source SHA tag no longer matches reserved digest for $IMAGE:$version at $revision"
+              return 1
+            fi
+
+            git fetch --force origin "$DEFAULT_BRANCH"
+            if ! git merge-base --is-ancestor "$revision" FETCH_HEAD; then
+              echo "::error::Reserved image $version at $revision is no longer on $DEFAULT_BRANCH"
+              return 1
+            fi
+            docker buildx imagetools create --prefer-index=false \
+              --tag "$IMAGE:$version" "$IMAGE@$digest"
+            actual="$(inspect_digest "$IMAGE:$version")"
+            if [[ "$actual" != "$digest" ]]; then
+              echo "::error::Image digest mismatch for $IMAGE:$version"
+              return 1
+            fi
+            echo "Published $IMAGE:$version@$digest at $revision" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          # Fetch authentication is necessary for private repositories after checkout
+          # with persist-credentials=false.
           gh auth setup-git
-          git fetch --force --tags origin "$DEFAULT_BRANCH"
+          git fetch --force --prune origin "$DEFAULT_BRANCH" 'refs/tags/image-v*:refs/tags/image-v*'
           if ! git merge-base --is-ancestor "$HEAD_SHA" FETCH_HEAD; then
             echo "Skip obsolete build after a force-push: $HEAD_SHA"
             exit 0
           fi
 
-          # Global highest image tag prevents an older, out-of-order workflow
-          # completion from creating a duplicate or regressive version.
-          latest="$(git tag --list 'image-v[0-9]*' |
-            grep -E '^image-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+          # Release jobs are serialized. Complete the latest reservation from its
+          # recorded digest before considering a later or out-of-order build.
+          tags="$(git tag --list 'image-v[0-9]*')"
+          latest="$(awk '/^image-v[0-9]+\.[0-9]+\.[0-9]+$/' <<< "$tags" | sort -V | tail -n 1)"
+          marker="Verified runtime image digest: "
           if [[ -n "$latest" ]]; then
-            last_sha="$(git rev-list -n 1 "$latest")"
+            latest_ref="refs/tags/$latest"
+            last_sha="$(git rev-parse "$latest_ref^{commit}")"
+            if [[ "$(git cat-file -t "$latest_ref")" == tag ]]; then
+              subject="$(git for-each-ref --format='%(contents:subject)' "$latest_ref")"
+              if [[ "$subject" == "$marker"* ]]; then
+                reserved_digest="${subject#"$marker"}"
+                if [[ ! "$reserved_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                  echo "::error::Invalid reserved digest on $latest"
+                  exit 1
+                fi
+                publish_version "${latest#image-v}" "$last_sha" "$reserved_digest"
+              fi
+            fi
             if [[ "$last_sha" == "$HEAD_SHA" ]]; then
               echo "Already released this commit: $latest"
               exit 0
             fi
             if ! git merge-base --is-ancestor "$last_sha" "$HEAD_SHA"; then
-              echo "Skip an older image build; newer release $latest already exists"
+              echo "::notice::Build $HEAD_SHA superseded by release $latest at $last_sha"
               exit 0
             fi
             previous="${latest#image-v}"
-            commits="$(git log "$latest..$HEAD_SHA" --format='%s%n%b')"
+            commits="$(git log "$last_sha..$HEAD_SHA" --format='%s%n%b')"
           else
             previous="$VERSION_FLOOR"
             commits=""
@@ -125,39 +190,65 @@ jobs:
           else
             patch=$((patch + 1))
           fi
-          version="$major.$minor.$patch"
-          tag="image-v$version"
 
-          # The verified image was already published by the successful upstream workflow.
           source="$IMAGE:sha-${HEAD_SHA:0:12}"
-          source_digest="$(docker buildx imagetools inspect "$source" |
-            awk '$1 == "Digest:" {print $2; exit}')"
-          if [[ ! "$source_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+          source_digest="$(inspect_digest "$source")"
+          if [[ -z "$source_digest" ]]; then
             echo "::error::Cannot resolve verified image digest for $source"
             exit 1
           fi
-          existing="$(docker buildx imagetools inspect "$IMAGE:$version" 2>/dev/null |
-            awk '$1 == "Digest:" {print $2; exit}' || true)"
-          if [[ -n "$existing" && "$existing" != "$source_digest" ]]; then
-            echo "::error::Immutable SemVer tag collision for $IMAGE:$version"
+
+          # A legacy registry-first release may have left a version without a Git
+          # tag. Keep that version intact. Advance only past a known predecessor.
+          while :; do
+            version="$major.$minor.$patch"
+            existing="$(inspect_digest "$IMAGE:$version")"
+            if [[ -z "$existing" || "$existing" == "$source_digest" ]]; then
+              break
+            fi
+            orphan_sha="$(docker buildx imagetools inspect "$IMAGE@$existing" --format '{{json .Image}}' |
+              jq -r '[.. | objects | .config.Labels? | objects | .["org.opencontainers.image.revision"] | strings]
+                | unique | if length == 1 then .[0] else empty end')"
+            if [[ ! "$orphan_sha" =~ ^[0-9a-f]{40}$ ]] ||
+              [[ "$(git cat-file -t "$orphan_sha" 2>/dev/null)" != commit ]]; then
+              echo "::error::Cannot establish the source revision of occupied $IMAGE:$version@$existing"
+              exit 1
+            fi
+          if [[ "$orphan_sha" == "$HEAD_SHA" ]]; then
+            echo "::error::Occupied $IMAGE:$version already points to a different digest for $HEAD_SHA"
             exit 1
           fi
-          # Allow a valid ancestor build to release when main has advanced.
-          # A force-pushed or detached history must never be promoted.
+          if ! git merge-base --is-ancestor "$orphan_sha" FETCH_HEAD; then
+            echo "::error::Occupied $IMAGE:$version has detached revision $orphan_sha"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$orphan_sha" "$HEAD_SHA"; then
+              if git merge-base --is-ancestor "$HEAD_SHA" "$orphan_sha"; then
+                echo "::notice::Build $HEAD_SHA superseded by $IMAGE:$version at $orphan_sha"
+                exit 0
+              fi
+              echo "::error::Occupied $IMAGE:$version has unrelated revision $orphan_sha"
+              exit 1
+            fi
+            echo "::notice::Keeping occupied $IMAGE:$version at $orphan_sha"
+            patch=$((patch + 1))
+          done
+
+          # Allow valid ancestor builds when the branch advances normally.
           git fetch --force origin "$DEFAULT_BRANCH"
           if ! git merge-base --is-ancestor "$HEAD_SHA" FETCH_HEAD; then
-            echo "::warning::Skipping superseded non-ancestor build"
+            echo "::notice::Skipping superseded non-ancestor build: $HEAD_SHA"
             exit 0
           fi
-          docker buildx imagetools create \
-            --tag "$IMAGE:$version" \
-            "$IMAGE@$source_digest"
-          actual="$(docker buildx imagetools inspect "$IMAGE:$version" |
-            awk '$1 == "Digest:" {print $2; exit}')"
-          [[ "$actual" == "$source_digest" ]] || { echo "::error::Image digest mismatch"; exit 1; }
 
-          # Commit metadata remains at the application version; image-v* tags track
-          # immutable image builds independently and never trigger application tag workflows.
+          # Reserve the version and verified digest in Git before writing to GHCR.
+          # If publication is interrupted, a retry or later eligible run can finish it.
+          tag="image-v$version"
+          tag_object="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" \
+            -f tag="$tag" -f message="$marker$source_digest" -f object="$HEAD_SHA" -f type=commit \
+            -f 'tagger[name]=github-actions[bot]' \
+            -f 'tagger[email]=41898282+github-actions[bot]@users.noreply.github.com' \
+            -f "tagger[date]=$(date -u +%Y-%m-%dT%H:%M:%SZ)" --jq '.sha')"
           gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f ref="refs/tags/$tag" -f sha="$HEAD_SHA" >/dev/null
-          echo "Published $IMAGE:$version@$source_digest at $HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+            -f ref="refs/tags/$tag" -f sha="$tag_object" >/dev/null
+          publish_version "$version" "$HEAD_SHA" "$source_digest"
