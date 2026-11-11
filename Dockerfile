@@ -5,6 +5,9 @@ ARG NODE_RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f
 
 FROM ${NODE_BUILDER_IMAGE} AS builder
 
+# Refresh cached Debian security layers after upstream security advisories.
+ARG SECURITY_REFRESH=2026-11-11
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
@@ -12,7 +15,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-RUN apt-get update \
+RUN echo "Security refresh: ${SECURITY_REFRESH}" \
+    && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
