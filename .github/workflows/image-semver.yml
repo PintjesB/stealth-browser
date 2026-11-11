@@ -117,7 +117,7 @@ jobs:
                   echo "::error::Invalid registry digest for $ref" >&2
                   return 1
                 fi
-                printf '%s\\n' "$digest"
+                printf '%s\n' "$digest"
                 return 0
               fi
               if [[ "$allow_missing" == true ]] &&
@@ -125,7 +125,7 @@ jobs:
                 return 0
               fi
               echo "::warning::Registry inspection failed for $ref, attempt $attempt/3" >&2
-              printf '%s\\n' "$result" >&2
+              printf '%s\n' "$result" >&2
               if (( attempt < 3 )); then sleep $((attempt * 5)); fi
             done
             echo "::error::Registry inspection unavailable for $ref; refusing to modify tags" >&2
