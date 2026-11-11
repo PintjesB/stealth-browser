@@ -121,7 +121,8 @@ jobs:
                 return 0
               fi
               if [[ "$allow_missing" == true ]] &&
-                 grep -Eiq '(manifest unknown|name unknown|manifest not found|404 Not Found)' <<< "$result"; then
+                 { [[ "$result" == "ERROR: $ref: not found" ]] ||
+                   grep -Eiq '(manifest unknown|name unknown|manifest not found|404 Not Found)' <<< "$result"; }; then
                 return 0
               fi
               echo "::warning::Registry inspection failed for $ref, attempt $attempt/3" >&2
