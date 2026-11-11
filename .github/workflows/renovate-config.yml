@@ -72,6 +72,7 @@ jobs:
           assert.ok(releaseWorkflow.includes('Image release failed at line'));
           assert.ok(releaseWorkflow.includes('queue: max'), 'Release events must not replace pending builds');
           assert.ok(releaseWorkflow.includes('Registry inspection unavailable'), 'Registry outages must fail closed');
+          assert.ok(releaseWorkflow.includes('[[ "$result" == "ERROR: $ref: not found" ]]'), 'Buildx missing SemVer tags must be recognized without treating registry outages as missing');
           assert.ok(releaseWorkflow.includes('Immutable SemVer tag collision while retrying'));
           const resolved = await resolveConfigPresets(raw);
           const config = resolved.config ?? resolved;
