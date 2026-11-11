@@ -16,6 +16,7 @@ permissions:
 concurrency:
   group: verified-image-semver-main
   cancel-in-progress: false
+  queue: max
 
 jobs:
   tag-verified-image:
@@ -40,10 +41,17 @@ jobs:
           set -euo pipefail
           status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
             --paginate --jq '.jobs[] | select(.name == env.PUBLISH_JOB) | .conclusion' | head -n 1)"
-          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
-          if [[ "$status" != success || "$current" != "$HEAD_SHA" ]]; then
-            echo "Skip: publish job status=$status; current default branch=$current; triggering SHA=$HEAD_SHA"
+          if [[ -z "$status" ]]; then
+            echo "::error::Required image publish job not found: $PUBLISH_JOB"
+            exit 1
+          fi
+          if [[ "$status" == skipped ]]; then
+            echo "No runtime image was published by this successful build"
             exit 0
+          fi
+          if [[ "$status" != success ]]; then
+            echo "::error::Image publish job did not succeed: $status"
+            exit 1
           fi
           echo "eligible=true" >> "$GITHUB_OUTPUT"
 
@@ -78,12 +86,25 @@ jobs:
           VERSION_FLOOR: "1.0.0"
         run: |
           set -euo pipefail
-          git fetch --force --tags origin
-          latest="$(git tag --merged "$HEAD_SHA" --list 'image-v[0-9]*' |
+          # A verified build may finish after another main branch commit.
+          gh auth setup-git
+          git fetch --force --tags origin "$DEFAULT_BRANCH"
+          if ! git merge-base --is-ancestor "$HEAD_SHA" FETCH_HEAD; then
+            echo "Skip obsolete build after a force-push: $HEAD_SHA"
+            exit 0
+          fi
+          # The global highest tag prevents out-of-order builds from releasing
+          # obsolete or colliding SemVer versions.
+          latest="$(git tag --list 'image-v[0-9]*' |
             grep -E '^image-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
           if [[ -n "$latest" ]]; then
-            if [[ "$(git rev-list -n 1 "$latest")" == "$HEAD_SHA" ]]; then
+            last_sha="$(git rev-list -n 1 "$latest")"
+            if [[ "$last_sha" == "$HEAD_SHA" ]]; then
               echo "Already released this commit: $latest"
+              exit 0
+            fi
+            if ! git merge-base --is-ancestor "$last_sha" "$HEAD_SHA"; then
+              echo "Skip an older image build; newer release $latest already exists"
               exit 0
             fi
             previous="${latest#image-v}"
@@ -118,10 +139,10 @@ jobs:
             echo "::error::Immutable SemVer tag collision for $IMAGE:$version"
             exit 1
           fi
-          # Fail closed if main moved during the release job.
-          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
-          if [[ "$current" != "$HEAD_SHA" ]]; then
-            echo "Default branch advanced; the subsequent run will release the new head"
+          # Do not skip a verified ancestor image just because main advanced.
+          git fetch --force origin "$DEFAULT_BRANCH"
+          if ! git merge-base --is-ancestor "$HEAD_SHA" FETCH_HEAD; then
+            echo "::warning::Skipping superseded non-ancestor build"
             exit 0
           fi
           docker buildx imagetools create \
