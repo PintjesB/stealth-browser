@@ -66,4 +66,6 @@ jobs:
           chmod 0755 "${RUNNER_TEMP}/pyflakes"
           export PATH="${RUNNER_TEMP}:${PATH}"
           command -v pyflakes
-          "${RUNNER_TEMP}/actionlint" -color
+          # actionlint 1.7.12 predates GitHub's documented concurrency.queue.
+          # Ignore only this syntax false positive.
+          "${RUNNER_TEMP}/actionlint" -color -ignore 'unexpected key "queue" for "concurrency" section'
