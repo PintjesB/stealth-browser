@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.28
 
-ARG NODE_BUILDER_IMAGE=node:24-trixie-slim@sha256:6418e1ff99a5db6608cd55a020036dde6b7d18df9a0b7e44209b4ef5891766fb
+ARG NODE_BUILDER_IMAGE=node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0
 ARG NODE_RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9fc11f6ee65993285c0fe3c4c9bbc4fd275fd4470572f58834ce490df91056e3
 
 FROM ${NODE_BUILDER_IMAGE} AS builder
